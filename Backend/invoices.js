@@ -1,63 +1,106 @@
-$(document).ready(function () {
-    var itemsPerPage = 14;
-    // Sample data for demonstration
-    var invoiceData = [
-        { no: 1, name: "Task 1", date: "2024-03-08", due: "2024-03-15", status: "Pending", action: "Edit" },
-        { no: 2, name: "Task 2", date: "2024-03-09", due: "2024-03-16", status: "Completed", action: "Delete" },
-        // Add more data as needed
-    ];
+$(document).ready(async () => {
+    try {
+        const { company_name } = await window.electron.invoke('fetchCustomer');
+        $('#customerChoose').empty();
 
-    var currentPageInvoice = 1;
-    var totalPagesInvoice = Math.ceil(invoiceData.length / itemsPerPage);
+        // Add a default option
+        $('#customerChoose').append('<option value="" disabled selected>Select Customer</option>');
 
-    function paginateData(page) {
-        var startIndex = (page - 1) * itemsPerPage;
-        var endIndex = startIndex + itemsPerPage;
-        return invoiceData.slice(startIndex, endIndex);
-    }
-
-    function populateTable(tableId, data) {
-        var tbody = $('#' + tableId + ' tbody');
-        tbody.empty();
-        $.each(data, function (index, item) {
-            var row = $('<tr>');
-            $.each(item, function (key, value) {
-                if (key === 'action') {
-                    var button = $('<button>').text(value).addClass('action-btn');
-                    row.append($('<td>').append(button));
-                } else {
-                    row.append($('<td>').text(value));
-                }
-            });
-            tbody.append(row);
+        // Populate the dropdown with company names
+        company_name.forEach(obj => {
+            $('#customerChoose').append('<option value="' + obj.company_name + '">' + obj.company_name + '</option>');
         });
-    }
 
-    function updatePaginationButtons() {
-        $('#prevInvoiceBtn').prop('disabled', currentPageInvoice === 1);
-        $('#nextInvoiceBtn').prop('disabled', currentPageInvoice === totalPagesInvoice);
-    }
+        $('#customerChoose').change(async () => {
+            const selectedCompanyName = $('#customerChoose').val();
 
-    function renderPage(page) {
-        currentPageInvoice = page;
-        var paginatedData = paginateData(currentPageInvoice);
-        populateTable("InvoiceDataTable", paginatedData);
-        updatePaginationButtons();
-    }
+            const { projects } = await window.electron.invoke('fetchProject', selectedCompanyName);
+            $('#projectChoose').empty();
 
-    // Initial population of the table
-    renderPage(currentPageInvoice);
+            // Add a default option
+            $('#projectChoose').append('<option value="" disabled selected>Select Project</option>');
 
-    // Pagination event handlers
-    $('#prevInvoiceBtn').on('click', function () {
-        if (currentPageInvoice > 1) {
-            renderPage(currentPageInvoice - 1);
+            // Populate the dropdown with project names
+            projects.forEach(obj => {
+                $('#projectChoose').append('<option value="' + obj.project_name + '">' + obj.project_name + '</option>');
+            });
+        });
+
+        let selectedMilestones = [];
+
+        $('#projectChoose').change(async () => {
+            const selectedProjectName = $('#projectChoose').val();
+            const { milestones } = await window.electron.invoke('fetchMilestones', selectedProjectName);
+
+            // Clear previous data
+            $('#invoiceTable tbody').empty();
+
+            // Loop through milestoneData and insert into the table
+            milestones.forEach(milestone => {
+                // Create a new row
+                const newRow = $('<tr>');
+
+                // Add milestone name, claim percentage, and amount as cells in the row
+                newRow.append('<td>' + milestone.milestone_name + '</td>');
+                newRow.append('<td>' + milestone.claim_percent + '</td>');
+                newRow.append('<td>' + milestone.amount + '</td>');
+
+                // Create a checkbox for the action column
+                const checkbox = $('<input type="checkbox">');
+                checkbox.on('change', function () {
+                    // If checkbox is checked, add the milestone to the selectedMilestones array
+                    if ($(this).is(':checked')) {
+                        selectedMilestones.push(milestone);
+                    } else {
+                        // If checkbox is unchecked, remove the milestone from the selectedMilestones array
+                        selectedMilestones = selectedMilestones.filter(item => item !== milestone);
+                    }
+                });
+                const actionCell = $('<td>').append(checkbox);
+
+                newRow.append(actionCell);
+
+                // Append the new row to the table body
+                $('#invoiceTable tbody').append(newRow);
+            });
+        });
+
+        function formdatafetch() {
+            // Get form field values
+            var customer = $('#customerChoose').val();
+            var project = $('#projectChoose').val();
+            var invoiceNumber = $("#invoice_number").val();
+            var invoiceDate = $("#invoice_date").val();
+            var dueDate = $("#due_date").val();
+            var description = $("#description").val();
+
+            // Create an object to store the form data
+            var data = {
+                customer: customer,
+                project: project,
+                invoiceNumber: invoiceNumber,
+                invoiceDate: invoiceDate,
+                dueDate: dueDate,
+                description: description
+            };
+            return data;
         }
-    });
 
-    $('#nextInvoiceBtn').on('click', function () {
-        if (currentPageInvoice < totalPagesInvoice) {
-            renderPage(currentPageInvoice + 1);
-        }
-    });
+        $("#createInvoice").click(async () => {
+            var formData = formdatafetch();
+            var invoiceData = {
+                formData: formData,
+                milestones: selectedMilestones
+            };
+            try {
+                await window.electron.send('createInvoice', { invoiceData });//send to  db
+                await window.electron.send('createForm', { invoiceData }); //send to excel
+            }
+            catch (error) {
+                console.log(error);
+            }
+        });
+    } catch (error) {
+        console.log(error);
+    }
 });
